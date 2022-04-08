@@ -30626,11 +30626,6 @@ function reducer(state, action) {
         });
       }
 
-    case actionType.RESET:
-      {
-        return (0, _tslib.__assign)({}, getInitState());
-      }
-
     case actionType.REQUEST_FAIL:
       {
         var error = payload.error;
@@ -30646,17 +30641,19 @@ function reducer(state, action) {
             idKey = payload.idKey,
             pageNumber = payload.pageNumber,
             total = payload.total,
-            extra = payload.extra;
+            extra = payload.extra; // 如果不是第一页就追加数据，否则直接用传入的
+
         var newData = state.data && pageNumber !== DEFAULT_PAGE_NUMBER ? state.data.concat(data) : data;
 
         if (idKey) {
-          // 数据去重
+          // 数据去重，主要是应用于删除场景的唯一标识
           newData = deDuplication(newData, idKey);
         }
 
         return (0, _tslib.__assign)((0, _tslib.__assign)({}, state), {
           total: total,
           extra: extra,
+          // 除基础数据外的额外数据，又逻辑层传入
           pageNumber: pageNumber,
           error: null,
           loading: false,
@@ -30683,16 +30680,18 @@ function reducer(state, action) {
         });
       }
 
+    case actionType.RESET:
+      {
+        return (0, _tslib.__assign)({}, getInitState());
+      }
+
     default:
       {
         throw new Error('type 错误');
       }
   }
-}
+} // 数据项去重
 
-function unique(arr) {
-  return Array.from(new Set(arr));
-}
 
 function deDuplication(data, idKey) {
   // id -> 数组index 的映射，方便查找
@@ -30712,6 +30711,11 @@ function deDuplication(data, idKey) {
   return uniqueIds.map(function (id) {
     return data[idToIndex[id]];
   });
+} // 基础数据去重
+
+
+function unique(arr) {
+  return Array.from(new Set(arr));
 }
 
 var _default = reducer;
@@ -30739,18 +30743,14 @@ function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" =
 /**
  * 获取分页数据的封装
  */
-var DEFAULT_PAGE_SIZE = 10;
-/**
- * 封装分页数据（适用于无限滚动场景）
- * @param request 发送请求的函数，需带pageNumber参数
- * @param config 配置参数
- */
+// 默认每页大小
+var DEFAULT_PAGE_SIZE = 10; // 初始state，默认 loading 为 false，然后与数据层的 state 和并
 
 var getDefaultState = function getDefaultState(config) {
   return (0, _tslib.__assign)((0, _tslib.__assign)({}, (0, _reducer.getInitState)()), {
     loading: !!config.autoRun
   });
-}; // 默认配置
+}; // 默认传入的配置
 
 
 var defaultConfig = {
@@ -30758,17 +30758,24 @@ var defaultConfig = {
   totalKey: 'total',
   autoRun: true
 };
+/**
+ * 封装分页数据（适用于无限滚动场景）
+ * @param request 发送请求的函数，需带pageNumber参数
+ * @param config 配置参数
+ */
 
-var usePagination = function usePagination( // 请求的函数
+var useLoadMoreList = function useLoadMoreList( // 请求的函数
 request, // 配置项
 config) {
+  // 防止多次请求
   var lockingRef = (0, _react.useRef)(false); // 确保 config 的参数被更改能同步更新
 
   var configRef = (0, _react.useRef)((0, _tslib.__assign)((0, _tslib.__assign)({}, defaultConfig), config));
 
   var _a = (0, _react.useReducer)(_reducer.default, getDefaultState(configRef.current)),
       state = _a[0],
-      dispatch = _a[1];
+      dispatch = _a[1]; // 删除的数量
+
 
   var deleteCountRef = (0, _react.useRef)(0);
   var _b = configRef.current.pageSize,
@@ -30794,31 +30801,37 @@ config) {
 
       return (0, _tslib.__generator)(this, function (_f) {
         _b = configRef.current, idKey = _b.idKey, params = _b.params, _c = _b.dataKey, dataKey = _c === void 0 ? 'data' : _c, _d = _b.totalKey, totalKey = _d === void 0 ? 'total' : _d, errorCallback = _b.errorCallback, successCallback = _b.successCallback, transformResponse = _b.transformResponse, _e = _b.pageSize, pageSize = _e === void 0 ? DEFAULT_PAGE_SIZE : _e;
-        requestParams = params || {};
+        requestParams = params || {}; // 请求锁，防止同时多次请求导致乱序
+
         if (lockingRef.current) return [2
         /*return*/
         ];
-        lockingRef.current = true;
+        lockingRef.current = true; // 如果是请求前清空，则先清空数据
+
+        if (isReset) clear(); // 请求前状态变更，主要 loading 态变更
+
         dispatch({
           type: 'BEFORE_REQUEST'
-        });
+        }); // 向后端发起请求，并返回 Promise，方便调用方处理
+
         return [2
         /*return*/
         , request((0, _tslib.__assign)((0, _tslib.__assign)({}, requestParams), {
           pageNumber: pageNumber,
           pageSize: pageSize
         })).then(function (result) {
-          if (isReset) clear(); // 对数据进行转换
+          // 对数据进行转换
+          if (transformResponse) result = transformResponse(result); // 执行传入的成功回调
 
-          if (transformResponse) result = transformResponse(result); // 执行成功回调
+          if (successCallback) successCallback(result); // 通过传入的 dataKey 和 totalKey 取到 dataList 和 total
 
-          if (successCallback) successCallback(result);
           var _a = result,
               _b = dataKey,
               responseData = _a[_b],
               _c = totalKey,
               total = _a[_c],
-              otherResult = (0, _tslib.__rest)(_a, [_typeof(_b) === "symbol" ? _b : _b + "", _typeof(_c) === "symbol" ? _c : _c + ""]);
+              otherResult = (0, _tslib.__rest)(_a, [_typeof(_b) === "symbol" ? _b : _b + "", _typeof(_c) === "symbol" ? _c : _c + ""]); // 把数据传到数据层处理
+
           dispatch({
             type: 'REQUEST_SUCCESS',
             payload: {
@@ -30830,7 +30843,9 @@ config) {
             }
           });
         }).catch(function (error) {
-          if (errorCallback) errorCallback(error);
+          // 失败梳理，调用传入的回调
+          if (errorCallback) errorCallback(error); // 通知数据层变更数据
+
           dispatch({
             type: 'REQUEST_FAIL',
             payload: {
@@ -30839,6 +30854,7 @@ config) {
           });
           console.log(error);
         }).finally(function () {
+          // 解锁
           lockingRef.current = false;
         })];
       });
@@ -30847,7 +30863,7 @@ config) {
 
   var getNextPage = function getNextPage() {
     return (0, _tslib.__awaiter)(void 0, void 0, void 0, function () {
-      var pageNumber, deleteCount, halfOfPageSize, remainder, fetchCount, willBackwardsPageCount, willFetchPageNumber, error_1;
+      var pageNumber, deleteCount, remainder, halfOfPageSize, fetchCount, willBackwardsPageCount, willFetchPageNumber, error_1;
       return (0, _tslib.__generator)(this, function (_a) {
         switch (_a.label) {
           case 0:
@@ -30875,8 +30891,8 @@ config) {
             , Promise.resolve()];
 
           case 3:
-            halfOfPageSize = pageSize / 2;
             remainder = deleteCount % pageSize;
+            halfOfPageSize = pageSize / 2;
             fetchCount = remainder ? remainder < halfOfPageSize ? 2 : 1 : 1;
             willBackwardsPageCount = deleteCount > pageSize ? Math.floor(deleteCount / pageSize) : 0;
             _a.label = 4;
@@ -30920,6 +30936,13 @@ config) {
       });
     });
   };
+  /**
+   * 通过 id 删除数据
+   * @param id 要被删除数据的唯一 id
+   * @param deleteCountOfAutoUpdate 可选，设置连续删除多少个数据后，向后端更新数据
+   * @returns
+   */
+
 
   var deleteDataById = function deleteDataById(id, deleteCountOfAutoUpdate) {
     if (deleteCountOfAutoUpdate === void 0) {
@@ -30927,15 +30950,18 @@ config) {
     }
 
     var idKey = configRef.current.idKey;
-    if (!state.data) return;
-    if (!idKey) throw new Error('没有输入唯一的idKey');
+    if (!state.data) return; // 需要数据的唯一 id 用于后面的数据合并去重
+
+    if (!idKey) throw new Error('没有输入唯一的idKey'); // 通知数据层删除数据
+
     dispatch({
       type: 'DELETE',
       payload: {
         id: id,
         idKey: idKey
       }
-    });
+    }); // 被删除数量递增 1
+
     deleteCountRef.current++; // 在有删除的场景，如果删除的数量超过了输入会删除后自动更新的数量，就自动获取下一页
 
     if (deleteCountOfAutoUpdate && deleteCountOfAutoUpdate <= deleteCountRef.current) {
@@ -30956,7 +30982,8 @@ config) {
 
   var run = function run() {
     return reset();
-  };
+  }; // 保持 current 最新
+
 
   (0, _react.useEffect)(function () {
     configRef.current = (0, _tslib.__assign)((0, _tslib.__assign)({}, defaultConfig), config);
@@ -30977,7 +31004,7 @@ config) {
   });
 };
 
-var _default = usePagination;
+var _default = useLoadMoreList;
 exports.default = _default;
 },{"tslib":"../node_modules/tslib/tslib.es6.js","react":"../node_modules/react/index.js","./reducer":"../src/reducer.ts"}],"node_modules/parcel-bundler/src/builtins/bundle-url.js":[function(require,module,exports) {
 var bundleURL = null;
@@ -89718,23 +89745,15 @@ function Demo() {
     return React.createElement("div", {
       style: {
         display: 'flex',
-        color: '#333'
+        color: '#333',
+        fontSize: 14
       }
-    }, React.createElement("div", {
-      style: {
-        marginRight: 8
-      }
-    }, React.createElement("div", {
-      style: {
-        width: 64,
-        height: 64
-      }
-    })), React.createElement("div", null, React.createElement("div", {
+    }, React.createElement("div", null, React.createElement("div", {
       style: {
         display: 'flex',
         alignItems: 'center'
       }
-    }, "id\u662F " + record.id + " \u7684\u6570\u636E - name " + (extra && extra.name), React.createElement(antd_mobile_1.Button, {
+    }, "id\u662F " + record.id + " \u7684\u6570\u636E - extra: " + (extra && extra.extraName), React.createElement(antd_mobile_1.Button, {
       color: 'danger',
       style: {
         marginLeft: 10
@@ -89764,14 +89783,18 @@ function Demo() {
   }, [value]);
   return React.createElement("div", {
     style: {
+      display: 'flex',
+      flexDirection: 'column',
       margin: 'auto',
-      width: 400,
-      height: 500,
+      maxWidth: 400,
+      width: '100%',
+      height: 'calc(100vh - 40px)',
+      maxHeight: 800,
       overflowY: 'scroll',
       border: '1px solid #000',
       overflowX: "hidden"
     }
-  }, React.createElement("div", {
+  }, React.createElement("div", null, React.createElement("div", {
     style: {
       padding: 10
     }
@@ -89786,12 +89809,20 @@ function Demo() {
       padding: 10
     },
     title: "query id",
-    placeholder: "\u8F93\u5165 id \u53C2\u6570\u7B5B\u9009\u67E5\u8BE2",
+    placeholder: "\u8F93\u5165 id \u6D4B\u8BD5\u4E1A\u52A1\u53C2\u6570\u7B5B\u9009\u67E5\u8BE2",
     value: value,
     onChange: function onChange(value) {
       setValue(value);
     }
-  }), !data && loading && React.createElement("div", {
+  })), React.createElement("div", {
+    style: {
+      flex: 1,
+      margin: 5,
+      overflowY: 'scroll',
+      border: '1px solid #000',
+      overflowX: "hidden"
+    }
+  }, !data && loading && React.createElement("div", {
     style: {
       textAlign: 'center',
       marginTop: 100
@@ -89821,7 +89852,7 @@ function Demo() {
   })), React.createElement(antd_mobile_1.InfiniteScroll, {
     loadMore: handleLoad,
     hasMore: hasMore
-  })));
+  }))));
 }
 
 exports.default = Demo;
@@ -89842,7 +89873,7 @@ var database = function () {
         return id.indexOf(queryId) >= 0;
       }) : data;
       return {
-        name: 'xxx',
+        extraName: 'xxx',
         data: filteredData.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
         dataTotal: filteredData.length
       };
@@ -89971,7 +90002,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "60221" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "52793" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};
